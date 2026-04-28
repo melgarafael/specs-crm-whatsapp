@@ -1,0 +1,1309 @@
+openapi: 3.1.0
+info:
+  title: CRM Core API
+  version: 1.0.0
+  description: |
+    REST API for the niche-agnostic CRM core. Supports leads, pipelines, stages,
+    activities, lead links, webhooks and api tokens. Multi-tenant via Supabase Auth.
+
+    Authentication:
+      - Cookie session (Supabase Auth) for first-party frontends
+      - Bearer token for server-to-server integrations
+
+    Conventions:
+      - All requests/responses are JSON (UTF-8)
+      - Cursor-based pagination by default
+      - Idempotency-Key header on POST creates
+      - Snake_case keys in payload
+      - Money in cents (integer), currency in ISO 4217
+
+  contact:
+    name: CRM Platform Team
+  license:
+    name: Internal
+
+servers:
+  - url: https://app.example.com/api/v1
+    description: Production
+  - url: http://localhost:3000/api/v1
+    description: Local development
+
+tags:
+  - name: Leads
+    description: CRM lead (deal/opportunity) management.
+  - name: Pipelines
+    description: Pipelines and their stages.
+  - name: Stages
+    description: Pipeline stages (kanban columns).
+  - name: Activities
+    description: Lead activity timeline.
+  - name: LeadLinks
+    description: Cross-references between leads and external entities.
+  - name: Webhooks
+    description: Outbound webhook subscriptions.
+  - name: ApiTokens
+    description: Server-to-server authentication tokens.
+
+security:
+  - cookieAuth: []
+  - bearerAuth: []
+
+components:
+
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sb-access-token
+      description: Supabase Auth session cookie (set by frontend after login).
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: |
+        API token issued via POST /api-tokens. Format: `tok_live_<random>`.
+        Pass as `Authorization: Bearer <token>`.
+
+  parameters:
+    CursorParam:
+      in: query
+      name: cursor
+      required: false
+      schema:
+        type: string
+      description: Opaque pagination cursor returned in `meta.cursor` of the previous page.
+    LimitParam:
+      in: query
+      name: limit
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+      description: Items per page.
+    OrderByParam:
+      in: query
+      name: order_by
+      required: false
+      schema:
+        type: string
+        enum: [created_at, updated_at, last_activity_at, value_cents, position_in_stage]
+        default: created_at
+    OrderDirParam:
+      in: query
+      name: order_dir
+      required: false
+      schema:
+        type: string
+        enum: [asc, desc]
+        default: desc
+    IdempotencyKeyHeader:
+      in: header
+      name: Idempotency-Key
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: |
+        Client-generated UUID. If the same key is reused with the same body within
+        24h, the original response is replayed. With a different body returns 409.
+
+  schemas:
+
+    UUID:
+      type: string
+      format: uuid
+      example: "9c5b0a3a-2f8e-4f2f-bf76-0b3c5a1e8d44"
+
+    Currency:
+      type: string
+      pattern: "^[A-Z]{3}$"
+      example: "BRL"
+
+    Timestamp:
+      type: string
+      format: date-time
+      example: "2026-04-28T14:30:00Z"
+
+    LeadStatus:
+      type: string
+      enum: [open, won, lost]
+
+    Lead:
+      type: object
+      required:
+        - id
+        - organization_id
+        - pipeline_id
+        - stage_id
+        - contact_id
+        - title
+        - value_cents
+        - currency
+        - status
+        - created_at
+        - updated_at
+      properties:
+        id: { $ref: "#/components/schemas/UUID" }
+        organization_id: { $ref: "#/components/schemas/UUID" }
+        pipeline_id: { $ref: "#/components/schemas/UUID" }
+        stage_id: { $ref: "#/components/schemas/UUID" }
+        contact_id: { $ref: "#/components/schemas/UUID" }
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: "Empresa Acme — Plano Pro"
+        value_cents:
+          type: integer
+          minimum: 0
+          example: 250000
+        currency: { $ref: "#/components/schemas/Currency" }
+        status: { $ref: "#/components/schemas/LeadStatus" }
+        owner_user_id:
+          oneOf:
+            - { $ref: "#/components/schemas/UUID" }
+            - { type: "null" }
+        source:
+          oneOf:
+            - { type: string, maxLength: 60 }
+            - { type: "null" }
+        source_metadata:
+          type: object
+          additionalProperties: true
+        custom_fields:
+          type: object
+          additionalProperties: true
+          example: { plano: "premium", industria: "saude" }
+        tags:
+          type: array
+          items:
+            type: string
+            maxLength: 40
+          example: ["enterprise", "inbound"]
+        position_in_stage:
+          type: number
+          example: 3000
+        lost_reason:
+          oneOf:
+            - { type: string, maxLength: 200 }
+            - { type: "null" }
+        expected_close_date:
+          oneOf:
+            - { type: string, format: date }
+            - { type: "null" }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        updated_at: { $ref: "#/components/schemas/Timestamp" }
+        closed_at:
+          oneOf:
+            - { $ref: "#/components/schemas/Timestamp" }
+            - { type: "null" }
+        last_activity_at: { $ref: "#/components/schemas/Timestamp" }
+
+    LeadCreate:
+      type: object
+      required: [pipeline_id, stage_id, contact_id, title]
+      properties:
+        pipeline_id: { $ref: "#/components/schemas/UUID" }
+        stage_id: { $ref: "#/components/schemas/UUID" }
+        contact_id: { $ref: "#/components/schemas/UUID" }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        value_cents: { type: integer, minimum: 0, default: 0 }
+        currency: { $ref: "#/components/schemas/Currency" }
+        owner_user_id:
+          oneOf:
+            - { $ref: "#/components/schemas/UUID" }
+            - { type: "null" }
+        source: { type: string, maxLength: 60 }
+        source_metadata: { type: object, additionalProperties: true }
+        custom_fields: { type: object, additionalProperties: true }
+        tags:
+          type: array
+          maxItems: 20
+          items: { type: string, maxLength: 40 }
+        expected_close_date: { type: string, format: date }
+
+    LeadUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        value_cents: { type: integer, minimum: 0 }
+        currency: { $ref: "#/components/schemas/Currency" }
+        owner_user_id: { $ref: "#/components/schemas/UUID" }
+        source: { type: string, maxLength: 60 }
+        custom_fields: { type: object, additionalProperties: true }
+        tags:
+          type: array
+          maxItems: 20
+          items: { type: string, maxLength: 40 }
+        status: { $ref: "#/components/schemas/LeadStatus" }
+        lost_reason: { type: string, maxLength: 200 }
+        expected_close_date: { type: string, format: date }
+
+    LeadMove:
+      type: object
+      required: [stage_id]
+      properties:
+        stage_id: { $ref: "#/components/schemas/UUID" }
+        position_in_stage: { type: number }
+        reason: { type: string, maxLength: 200 }
+
+    LeadBulkCreate:
+      type: object
+      required: [leads]
+      properties:
+        leads:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { $ref: "#/components/schemas/LeadCreate" }
+
+    LeadBulkResult:
+      type: object
+      properties:
+        inserted:
+          type: array
+          items: { $ref: "#/components/schemas/Lead" }
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              index: { type: integer }
+              error: { type: string }
+
+    Pipeline:
+      type: object
+      required: [id, organization_id, name, slug]
+      properties:
+        id: { $ref: "#/components/schemas/UUID" }
+        organization_id: { $ref: "#/components/schemas/UUID" }
+        name: { type: string, maxLength: 100 }
+        slug: { type: string, maxLength: 60 }
+        is_default: { type: boolean }
+        position: { type: integer }
+        color: { type: string, maxLength: 7 }
+        icon: { type: string, maxLength: 40 }
+        vocabulary:
+          type: object
+          additionalProperties: { type: string }
+          example: { lead: "Paciente", stage: "Etapa", deal: "Tratamento" }
+        settings:
+          type: object
+          additionalProperties: true
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+
+    PipelineCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        slug: { type: string, maxLength: 60 }
+        is_default: { type: boolean, default: false }
+        color: { type: string, maxLength: 7 }
+        icon: { type: string, maxLength: 40 }
+        vocabulary:
+          type: object
+          additionalProperties: { type: string }
+
+    Stage:
+      type: object
+      required: [id, pipeline_id, name, position]
+      properties:
+        id: { $ref: "#/components/schemas/UUID" }
+        pipeline_id: { $ref: "#/components/schemas/UUID" }
+        name: { type: string, maxLength: 80 }
+        position: { type: integer }
+        is_won: { type: boolean }
+        is_lost: { type: boolean }
+        color: { type: string, maxLength: 7 }
+        win_probability:
+          type: number
+          minimum: 0
+          maximum: 1
+        wip_limit:
+          oneOf:
+            - { type: integer, minimum: 1 }
+            - { type: "null" }
+        automation_config:
+          type: object
+          additionalProperties: true
+
+    StageCreate:
+      type: object
+      required: [name, position]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        position: { type: integer, minimum: 0 }
+        is_won: { type: boolean, default: false }
+        is_lost: { type: boolean, default: false }
+        color: { type: string, maxLength: 7 }
+        win_probability: { type: number, minimum: 0, maximum: 1 }
+        wip_limit: { type: integer, minimum: 1 }
+
+    Activity:
+      type: object
+      required: [id, lead_id, type, title, performed_at]
+      properties:
+        id: { $ref: "#/components/schemas/UUID" }
+        organization_id: { $ref: "#/components/schemas/UUID" }
+        lead_id: { $ref: "#/components/schemas/UUID" }
+        contact_id: { $ref: "#/components/schemas/UUID" }
+        type:
+          type: string
+          enum: [note, call, meeting, whatsapp, email, task, stage_change, system]
+        title: { type: string, maxLength: 200 }
+        body: { type: string, maxLength: 10000 }
+        performed_by_user_id: { $ref: "#/components/schemas/UUID" }
+        performed_at: { $ref: "#/components/schemas/Timestamp" }
+        metadata: { type: object, additionalProperties: true }
+        source_module: { type: string, maxLength: 40 }
+        source_id: { type: string }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+
+    ActivityCreate:
+      type: object
+      required: [type, title]
+      properties:
+        type:
+          type: string
+          enum: [note, call, meeting, whatsapp, email, task, stage_change, system]
+        title: { type: string, minLength: 1, maxLength: 200 }
+        body: { type: string, maxLength: 10000 }
+        performed_at: { $ref: "#/components/schemas/Timestamp" }
+        metadata: { type: object, additionalProperties: true }
+        source_module: { type: string, maxLength: 40 }
+        source_id: { type: string }
+
+    LeadLink:
+      type: object
+      required: [id, lead_id, target_kind, target_id]
+      properties:
+        id: { $ref: "#/components/schemas/UUID" }
+        lead_id: { $ref: "#/components/schemas/UUID" }
+        target_kind:
+          type: string
+          enum: [conversation, message, appointment, contract, invoice, document, external]
+        target_id: { type: string }
+        link_kind:
+          type: string
+          enum: [related, origin, continuation, attachment]
+          default: related
+        metadata: { type: object, additionalProperties: true }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+
+    LeadLinkCreate:
+      type: object
+      required: [target_kind, target_id]
+      properties:
+        target_kind:
+          type: string
+          enum: [conversation, message, appointment, contract, invoice, document, external]
+        target_id: { type: string }
+        link_kind:
+          type: string
+          enum: [related, origin, continuation, attachment]
+        metadata: { type: object, additionalProperties: true }
+
+    WebhookSubscription:
+      type: object
+      required: [id, url, events, is_active]
+      properties:
+        id: { $ref: "#/components/schemas/UUID" }
+        organization_id: { $ref: "#/components/schemas/UUID" }
+        url: { type: string, format: uri }
+        events:
+          type: array
+          items:
+            type: string
+            enum:
+              [
+                lead.created, lead.updated, lead.moved, lead.won, lead.lost, lead.deleted,
+                activity.created,
+                pipeline.created, pipeline.updated,
+                stage.created, stage.updated
+              ]
+        is_active: { type: boolean }
+        description: { type: string }
+        last_delivery_at: { $ref: "#/components/schemas/Timestamp" }
+        last_delivery_status: { type: integer }
+        consecutive_failures: { type: integer }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+
+    WebhookSubscriptionCreate:
+      type: object
+      required: [url, events]
+      properties:
+        url: { type: string, format: uri }
+        events:
+          type: array
+          minItems: 1
+          items: { type: string }
+        description: { type: string, maxLength: 200 }
+
+    ApiToken:
+      type: object
+      required: [id, name, prefix, scopes]
+      properties:
+        id: { $ref: "#/components/schemas/UUID" }
+        name: { type: string }
+        prefix: { type: string }
+        scopes:
+          type: array
+          items: { type: string }
+        last_used_at: { $ref: "#/components/schemas/Timestamp" }
+        expires_at: { $ref: "#/components/schemas/Timestamp" }
+        revoked_at: { $ref: "#/components/schemas/Timestamp" }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+
+    ApiTokenCreated:
+      allOf:
+        - $ref: "#/components/schemas/ApiToken"
+        - type: object
+          properties:
+            plaintext:
+              type: string
+              description: "Shown once. Never retrievable again."
+              example: "tok_live_AbCdEf1234567890..."
+
+    MetaPagination:
+      type: object
+      properties:
+        cursor:
+          oneOf:
+            - { type: string }
+            - { type: "null" }
+        has_more: { type: boolean }
+        total:
+          oneOf:
+            - { type: integer }
+            - { type: "null" }
+
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              example: "lead_not_found"
+            message:
+              type: string
+              example: "Lead não encontrado."
+            details:
+              description: "Optional additional info (Zod issues, etc.)"
+
+    LeadListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Lead" }
+        meta: { $ref: "#/components/schemas/MetaPagination" }
+
+    LeadEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: { $ref: "#/components/schemas/Lead" }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid authentication.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorBody" }
+          example:
+            error: { code: "unauthorized", message: "Não autenticado." }
+    Forbidden:
+      description: Authenticated but lacks permission.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorBody" }
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorBody" }
+    Conflict:
+      description: Conflicting state.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorBody" }
+    Unprocessable:
+      description: Validation failed.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorBody" }
+          example:
+            error:
+              code: unprocessable
+              message: "Validação falhou."
+              details:
+                - path: ["title"]
+                  message: "String must contain at least 1 character"
+    TooManyRequests:
+      description: Rate limit exceeded.
+      headers:
+        Retry-After:
+          schema: { type: integer }
+        X-RateLimit-Limit:
+          schema: { type: integer }
+        X-RateLimit-Remaining:
+          schema: { type: integer }
+        X-RateLimit-Reset:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorBody" }
+
+paths:
+
+  /me:
+    get:
+      tags: [Leads]
+      summary: Current authenticated session details.
+      operationId: getMe
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      user_id: { $ref: "#/components/schemas/UUID" }
+                      organization_id: { $ref: "#/components/schemas/UUID" }
+                      role:
+                        type: string
+                        enum: [admin, manager, agent, viewer]
+                      auth_method:
+                        type: string
+                        enum: [cookie, bearer]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /leads:
+    get:
+      tags: [Leads]
+      summary: List leads with filters and cursor pagination.
+      operationId: listLeads
+      parameters:
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/OrderByParam"
+        - $ref: "#/components/parameters/OrderDirParam"
+        - in: query
+          name: pipeline_id
+          schema: { $ref: "#/components/schemas/UUID" }
+        - in: query
+          name: stage_id
+          schema: { $ref: "#/components/schemas/UUID" }
+        - in: query
+          name: owner
+          schema: { $ref: "#/components/schemas/UUID" }
+        - in: query
+          name: contact_id
+          schema: { $ref: "#/components/schemas/UUID" }
+        - in: query
+          name: status
+          schema: { $ref: "#/components/schemas/LeadStatus" }
+        - in: query
+          name: source
+          schema: { type: string }
+        - in: query
+          name: tag
+          schema: { type: string }
+        - in: query
+          name: search
+          schema: { type: string, minLength: 1 }
+        - in: query
+          name: value_min
+          schema: { type: integer }
+        - in: query
+          name: value_max
+          schema: { type: integer }
+        - in: query
+          name: created_after
+          schema: { type: string, format: date-time }
+        - in: query
+          name: created_before
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LeadListResponse" }
+              examples:
+                sample:
+                  value:
+                    data:
+                      - id: "9c5b0a3a-2f8e-4f2f-bf76-0b3c5a1e8d44"
+                        organization_id: "00000000-0000-0000-0000-000000000001"
+                        pipeline_id: "11111111-1111-1111-1111-111111111111"
+                        stage_id: "22222222-2222-2222-2222-222222222222"
+                        contact_id: "33333333-3333-3333-3333-333333333333"
+                        title: "Acme — Plano Pro"
+                        value_cents: 250000
+                        currency: "BRL"
+                        status: "open"
+                        owner_user_id: "44444444-4444-4444-4444-444444444444"
+                        source: "whatsapp_inbound"
+                        source_metadata: {}
+                        custom_fields: { plano: "premium" }
+                        tags: ["enterprise"]
+                        position_in_stage: 1000
+                        expected_close_date: "2026-05-30"
+                        created_at: "2026-04-15T10:00:00Z"
+                        updated_at: "2026-04-27T18:00:00Z"
+                        closed_at: null
+                        last_activity_at: "2026-04-27T18:00:00Z"
+                    meta:
+                      cursor: "eyJ0cyI6IjIwMjYtMDQt..."
+                      has_more: true
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+    post:
+      tags: [Leads]
+      summary: Create a lead.
+      operationId: createLead
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKeyHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LeadCreate" }
+            examples:
+              sample:
+                value:
+                  pipeline_id: "11111111-1111-1111-1111-111111111111"
+                  stage_id: "22222222-2222-2222-2222-222222222222"
+                  contact_id: "33333333-3333-3333-3333-333333333333"
+                  title: "Empresa Acme — Plano Pro"
+                  value_cents: 250000
+                  currency: "BRL"
+                  tags: ["enterprise", "inbound"]
+                  custom_fields: { plano: "premium" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LeadEnvelope" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /leads/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { $ref: "#/components/schemas/UUID" }
+
+    get:
+      tags: [Leads]
+      summary: Read a single lead.
+      operationId: getLead
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LeadEnvelope" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+    patch:
+      tags: [Leads]
+      summary: Partially update a lead.
+      operationId: updateLead
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LeadUpdate" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LeadEnvelope" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+    delete:
+      tags: [Leads]
+      summary: Soft-delete a lead.
+      operationId: deleteLead
+      responses:
+        "204":
+          description: No Content
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /leads/{id}/move:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { $ref: "#/components/schemas/UUID" }
+    post:
+      tags: [Leads]
+      summary: Move lead to a different stage.
+      operationId: moveLead
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LeadMove" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LeadEnvelope" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /leads/{id}/win:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { $ref: "#/components/schemas/UUID" }
+    post:
+      tags: [Leads]
+      summary: Mark lead as won.
+      operationId: winLead
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LeadEnvelope" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /leads/{id}/lose:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { $ref: "#/components/schemas/UUID" }
+    post:
+      tags: [Leads]
+      summary: Mark lead as lost.
+      operationId: loseLead
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, maxLength: 200 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LeadEnvelope" }
+
+  /leads/bulk:
+    post:
+      tags: [Leads]
+      summary: Bulk-create leads (max 100).
+      operationId: bulkCreateLeads
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LeadBulkCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/LeadBulkResult" }
+        "207":
+          description: Multi-Status (partial success)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/LeadBulkResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /leads/{id}/activities:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { $ref: "#/components/schemas/UUID" }
+    get:
+      tags: [Activities]
+      summary: List activities of a lead.
+      operationId: listLeadActivities
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Activity" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+    post:
+      tags: [Activities]
+      summary: Create an activity in a lead's timeline.
+      operationId: createLeadActivity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ActivityCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Activity" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /leads/{id}/links:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { $ref: "#/components/schemas/UUID" }
+    get:
+      tags: [LeadLinks]
+      summary: List external links for a lead.
+      operationId: listLeadLinks
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/LeadLink" }
+    post:
+      tags: [LeadLinks]
+      summary: Link lead to external entity.
+      operationId: createLeadLink
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LeadLinkCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/LeadLink" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /lead-links/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { $ref: "#/components/schemas/UUID" }
+    delete:
+      tags: [LeadLinks]
+      summary: Remove a lead link.
+      operationId: deleteLeadLink
+      responses:
+        "204":
+          description: No Content
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /pipelines:
+    get:
+      tags: [Pipelines]
+      summary: List pipelines for the org.
+      operationId: listPipelines
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Pipeline" }
+    post:
+      tags: [Pipelines]
+      summary: Create a pipeline.
+      operationId: createPipeline
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKeyHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PipelineCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Pipeline" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /pipelines/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { $ref: "#/components/schemas/UUID" }
+    get:
+      tags: [Pipelines]
+      summary: Get pipeline (with stages embedded).
+      operationId: getPipeline
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    allOf:
+                      - $ref: "#/components/schemas/Pipeline"
+                      - type: object
+                        properties:
+                          stages:
+                            type: array
+                            items: { $ref: "#/components/schemas/Stage" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Pipelines]
+      summary: Update pipeline.
+      operationId: updatePipeline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PipelineCreate" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Pipeline" }
+    delete:
+      tags: [Pipelines]
+      summary: Archive (soft delete) pipeline.
+      operationId: archivePipeline
+      responses:
+        "204": { description: No Content }
+
+  /pipelines/{pid}/stages:
+    parameters:
+      - in: path
+        name: pid
+        required: true
+        schema: { $ref: "#/components/schemas/UUID" }
+    get:
+      tags: [Stages]
+      summary: List stages of a pipeline.
+      operationId: listStages
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Stage" }
+    post:
+      tags: [Stages]
+      summary: Create a stage.
+      operationId: createStage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StageCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Stage" }
+
+  /pipelines/{pid}/stages/reorder:
+    parameters:
+      - in: path
+        name: pid
+        required: true
+        schema: { $ref: "#/components/schemas/UUID" }
+    post:
+      tags: [Stages]
+      summary: Reorder stages.
+      operationId: reorderStages
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [stage_ids]
+              properties:
+                stage_ids:
+                  type: array
+                  items: { $ref: "#/components/schemas/UUID" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Stage" }
+
+  /stages/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { $ref: "#/components/schemas/UUID" }
+    patch:
+      tags: [Stages]
+      summary: Update stage.
+      operationId: updateStage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StageCreate" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Stage" }
+    delete:
+      tags: [Stages]
+      summary: Delete stage (409 if has open leads).
+      operationId: deleteStage
+      responses:
+        "204": { description: No Content }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /webhooks:
+    get:
+      tags: [Webhooks]
+      summary: List webhook subscriptions.
+      operationId: listWebhooks
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/WebhookSubscription" }
+    post:
+      tags: [Webhooks]
+      summary: Create a webhook subscription.
+      operationId: createWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WebhookSubscriptionCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    allOf:
+                      - $ref: "#/components/schemas/WebhookSubscription"
+                      - type: object
+                        properties:
+                          secret:
+                            type: string
+                            description: Shown once. Used by consumer to validate HMAC.
+
+  /webhooks/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { $ref: "#/components/schemas/UUID" }
+    patch:
+      tags: [Webhooks]
+      summary: Update subscription.
+      operationId: updateWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url: { type: string, format: uri }
+                events:
+                  type: array
+                  items: { type: string }
+                is_active: { type: boolean }
+                description: { type: string, maxLength: 200 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/WebhookSubscription" }
+    delete:
+      tags: [Webhooks]
+      summary: Remove subscription.
+      operationId: deleteWebhook
+      responses:
+        "204": { description: No Content }
+
+  /api-tokens:
+    get:
+      tags: [ApiTokens]
+      summary: List API tokens (admin only).
+      operationId: listApiTokens
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ApiToken" }
+    post:
+      tags: [ApiTokens]
+      summary: Create an API token (admin only). Plaintext is returned once.
+      operationId: createApiToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 100 }
+                scopes:
+                  type: array
+                  items: { type: string }
+                  example: ["leads:read", "leads:write"]
+                expires_at: { type: string, format: date-time }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/ApiTokenCreated" }
+
+  /api-tokens/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { $ref: "#/components/schemas/UUID" }
+    delete:
+      tags: [ApiTokens]
+      summary: Revoke a token (admin only).
+      operationId: revokeApiToken
+      responses:
+        "204": { description: No Content }

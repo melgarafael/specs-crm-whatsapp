@@ -1,0 +1,256 @@
+{
+  "_documentation": "Exemplos reais de payloads de webhook do WAHA. Use como referência ao implementar o handler.",
+  "_format": "Cada chave é um exemplo nomeado. Os payloads foram simplificados removendo metadata interna do WAHA, mas mantém os campos que importam.",
+
+  "incoming_text_message": {
+    "id": "evt_01HZ123ABC",
+    "timestamp": 1741234567890,
+    "event": "message",
+    "session": "org-acme-1",
+    "metadata": {},
+    "engine": "NOWEB",
+    "payload": {
+      "id": "false_5511999999999@c.us_3EB05F8D2B7C9F4A2C8E1B",
+      "timestamp": 1741234567,
+      "from": "5511999999999@c.us",
+      "fromMe": false,
+      "to": "5511888888888@c.us",
+      "pushName": "João Silva",
+      "body": "Olá, gostaria de marcar uma consulta",
+      "type": "chat",
+      "hasMedia": false,
+      "ack": 2
+    }
+  },
+
+  "incoming_image_message": {
+    "event": "message",
+    "session": "org-acme-1",
+    "payload": {
+      "id": "false_5511999999999@c.us_3EB0ABC",
+      "timestamp": 1741234568,
+      "from": "5511999999999@c.us",
+      "fromMe": false,
+      "pushName": "João Silva",
+      "body": "Aqui está minha receita",
+      "type": "image",
+      "hasMedia": true,
+      "mimetype": "image/jpeg",
+      "media": {
+        "url": "https://waha.seudominio.com/api/files/abc123.jpg",
+        "filename": null,
+        "mimetype": "image/jpeg"
+      },
+      "caption": "Aqui está minha receita",
+      "ack": 2
+    }
+  },
+
+  "incoming_audio_message": {
+    "event": "message",
+    "session": "org-acme-1",
+    "payload": {
+      "id": "false_5511999999999@c.us_3EB0DEF",
+      "timestamp": 1741234600,
+      "from": "5511999999999@c.us",
+      "fromMe": false,
+      "pushName": "João Silva",
+      "type": "ptt",
+      "hasMedia": true,
+      "mimetype": "audio/ogg; codecs=opus",
+      "duration": 12,
+      "media": {
+        "url": "https://waha.seudominio.com/api/files/audio_xyz.ogg",
+        "mimetype": "audio/ogg"
+      }
+    }
+  },
+
+  "incoming_document_message": {
+    "event": "message",
+    "session": "org-acme-1",
+    "payload": {
+      "id": "false_5511999999999@c.us_3EB0DOC",
+      "timestamp": 1741234700,
+      "from": "5511999999999@c.us",
+      "fromMe": false,
+      "pushName": "João Silva",
+      "type": "document",
+      "hasMedia": true,
+      "mimetype": "application/pdf",
+      "filename": "exames.pdf",
+      "media": {
+        "url": "https://waha.seudominio.com/api/files/exames.pdf",
+        "filename": "exames.pdf",
+        "mimetype": "application/pdf"
+      }
+    }
+  },
+
+  "incoming_location_message": {
+    "event": "message",
+    "session": "org-acme-1",
+    "payload": {
+      "id": "false_5511999999999@c.us_3EB0LOC",
+      "timestamp": 1741234800,
+      "from": "5511999999999@c.us",
+      "fromMe": false,
+      "pushName": "João Silva",
+      "type": "location",
+      "location": {
+        "latitude": -23.5505,
+        "longitude": -46.6333,
+        "description": "Av. Paulista, São Paulo"
+      },
+      "hasMedia": false
+    }
+  },
+
+  "incoming_group_message": {
+    "event": "message",
+    "session": "org-acme-1",
+    "payload": {
+      "id": "false_120363045123456789@g.us_3EB0GRP",
+      "timestamp": 1741234900,
+      "from": "120363045123456789@g.us",
+      "author": "5511999999999@c.us",
+      "fromMe": false,
+      "pushName": "João Silva",
+      "body": "Pessoal, alguma sugestão?",
+      "type": "chat",
+      "isGroup": true,
+      "_data": {
+        "notifyName": "Grupo de Vendas Tomik"
+      },
+      "ack": 2
+    }
+  },
+
+  "outbound_message_via_other_device": {
+    "_note": "Disparado por message.any quando você envia do app oficial em paralelo, e o WAHA observa.",
+    "event": "message.any",
+    "session": "org-acme-1",
+    "payload": {
+      "id": "true_5511999999999@c.us_3EB0OUT",
+      "timestamp": 1741235000,
+      "from": "5511888888888@c.us",
+      "to": "5511999999999@c.us",
+      "fromMe": true,
+      "body": "Sua consulta está marcada para 15h.",
+      "type": "chat",
+      "ack": 1
+    }
+  },
+
+  "message_ack_delivered": {
+    "event": "message.ack",
+    "session": "org-acme-1",
+    "payload": {
+      "id": "true_5511999999999@c.us_3EB0SENT",
+      "from": "5511888888888@c.us",
+      "to": "5511999999999@c.us",
+      "fromMe": true,
+      "ack": 3,
+      "ackName": "DEVICE"
+    }
+  },
+
+  "message_ack_read": {
+    "event": "message.ack",
+    "session": "org-acme-1",
+    "payload": {
+      "id": "true_5511999999999@c.us_3EB0SENT",
+      "from": "5511888888888@c.us",
+      "to": "5511999999999@c.us",
+      "fromMe": true,
+      "ack": 4,
+      "ackName": "READ"
+    }
+  },
+
+  "message_reaction": {
+    "event": "message.reaction",
+    "session": "org-acme-1",
+    "payload": {
+      "id": "false_5511999999999@c.us_3EB0REACT",
+      "from": "5511999999999@c.us",
+      "to": "5511888888888@c.us",
+      "fromMe": false,
+      "reaction": {
+        "messageId": "true_5511999999999@c.us_3EB0SENT",
+        "text": "❤️"
+      }
+    }
+  },
+
+  "message_revoked": {
+    "_note": "Mensagem foi apagada (deleted for everyone) pelo remetente.",
+    "event": "message.revoked",
+    "session": "org-acme-1",
+    "payload": {
+      "after": {
+        "id": "false_5511999999999@c.us_3EB0DEL",
+        "type": "revoked"
+      },
+      "before": {
+        "id": "false_5511999999999@c.us_3EB0DEL",
+        "body": "Texto que foi apagado"
+      }
+    }
+  },
+
+  "session_status_starting": {
+    "event": "session.status",
+    "session": "org-acme-1",
+    "payload": {
+      "name": "org-acme-1",
+      "status": "STARTING"
+    }
+  },
+
+  "session_status_scan_qr": {
+    "event": "session.status",
+    "session": "org-acme-1",
+    "payload": {
+      "name": "org-acme-1",
+      "status": "SCAN_QR_CODE",
+      "qr": "data:image/png;base64,iVBORw0KGgoAAAANS..."
+    }
+  },
+
+  "session_status_working": {
+    "event": "session.status",
+    "session": "org-acme-1",
+    "payload": {
+      "name": "org-acme-1",
+      "status": "WORKING",
+      "me": {
+        "id": "5511888888888@c.us",
+        "pushname": "Clínica Acme"
+      },
+      "engine": {
+        "engine": "NOWEB"
+      }
+    }
+  },
+
+  "session_status_failed": {
+    "event": "session.status",
+    "session": "org-acme-1",
+    "payload": {
+      "name": "org-acme-1",
+      "status": "FAILED",
+      "error": "Browser session closed"
+    }
+  },
+
+  "group_v2_join": {
+    "event": "group.v2.join",
+    "session": "org-acme-1",
+    "payload": {
+      "id": "120363045123456789@g.us",
+      "groupName": "Pacientes VIP",
+      "joinedBy": "5511888888888@c.us"
+    }
+  }
+}

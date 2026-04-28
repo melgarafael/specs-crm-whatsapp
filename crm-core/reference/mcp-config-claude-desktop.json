@@ -1,0 +1,65 @@
+{
+  "_metadata": {
+    "purpose": "Reference Claude Desktop config for the universal CRM MCP server.",
+    "paths": {
+      "macOS": "~/Library/Application Support/Claude/claude_desktop_config.json",
+      "Windows": "%APPDATA%\\Claude\\claude_desktop_config.json",
+      "Linux": "~/.config/Claude/claude_desktop_config.json"
+    },
+    "instructions": [
+      "1. Choose ONE of the variants below ('crm-local-stdio' OR 'crm-remote-http' OR 'crm-via-npx').",
+      "2. Copy the chosen entry under 'mcpServers' INTO your real config file.",
+      "3. Replace placeholder values (paths, tokens, URLs).",
+      "4. JSON does NOT support comments — strip the '_metadata' block before saving.",
+      "5. Fully quit Claude Desktop (not just the window) and reopen.",
+      "6. Open any chat → click the plug/hammer icon → confirm 'crm' is listed.",
+      "7. Ask: 'List the CRM tools you have' to verify."
+    ],
+    "gotchas": [
+      "Windows paths require double-backslash (\\\\). Forward slashes also work in most setups.",
+      "If 'command: node' fails with ENOENT, replace with absolute path (/usr/local/bin/node, etc.).",
+      "Token shown only ONCE at generation — store securely. Rotate periodically.",
+      "Remote HTTP variant requires Claude Desktop 0.7+ for native 'type: http' support.",
+      "Never commit this file to git — it contains real credentials."
+    ]
+  },
+  "mcpServers": {
+    "crm-local-stdio": {
+      "_doc": "Variant A — Local stdio. Single-user. Build the project first: npm run build inside crm-mcp/.",
+      "command": "node",
+      "args": [
+        "/Users/joao/projects/crm-mcp/build/index.js"
+      ],
+      "env": {
+        "CRM_API_BASE_URL": "https://api.seucrm.com",
+        "CRM_API_TOKEN": "tok_REPLACE_WITH_REAL_TOKEN",
+        "DEFAULT_ORGANIZATION_ID": "00000000-0000-0000-0000-000000000001",
+        "DEFAULT_USER_ID": "00000000-0000-0000-0000-000000000002",
+        "LOG_LEVEL": "info"
+      }
+    },
+    "crm-via-npx": {
+      "_doc": "Variant B — Local stdio via published npm package. Zero install.",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@suaempresa/crm-mcp"
+      ],
+      "env": {
+        "CRM_API_BASE_URL": "https://api.seucrm.com",
+        "CRM_API_TOKEN": "tok_REPLACE_WITH_REAL_TOKEN",
+        "DEFAULT_ORGANIZATION_ID": "00000000-0000-0000-0000-000000000001",
+        "DEFAULT_USER_ID": "00000000-0000-0000-0000-000000000002",
+        "LOG_LEVEL": "info"
+      }
+    },
+    "crm-remote-http": {
+      "_doc": "Variant C — Remote Streamable HTTP. Multi-tenant. Token resolves user+org server-side.",
+      "type": "http",
+      "url": "https://mcp.seucrm.com/mcp",
+      "headers": {
+        "Authorization": "Bearer tok_REPLACE_WITH_REAL_TOKEN"
+      }
+    }
+  }
+}
